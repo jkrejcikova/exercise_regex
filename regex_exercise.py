@@ -1,4 +1,8 @@
 import re
+import gzip
+import os
+import csv
+from Bio import SeqIO
 
 # TASK 1
 log_lines = [
@@ -70,11 +74,11 @@ class SequencingRead:
         return bool(re.search(pattern, self.sequence))
 
     def trim_mid_pair(self, forward_mid, reverse_mid) -> str | None:
-        rev_comp_r = reverse_complement(reverse_mid)
-        pattern = f"^{forward_mid}(.*){rev_comp_r}$"
-        match = re.search(pattern, self.sequence)
+        rev_comp_r = reverse_complement(reverse_mid)        # vrací reverse complement z reverse mid (info v prezentaci)
+        pattern = f"^{forward_mid}(.*){rev_comp_r}$"        # sekvence začíná ^ s forward MID, uvnitř mohou být veškeré báze a končí $ s reverse forward MID
+        match = re.search(pattern, self.sequence)           # vyhledání dané sekvence
         if match:
-            return match.group(1)
+            return match.group(1)                           # pokud forward a reverse MID sedí, vrací group(1) - vložená část
         return None
 
     def describe(self) -> str:
@@ -86,3 +90,72 @@ print(r1.describe())
 print(r1.matches_mid_pair("AGCTTCGA", "TGCAGGTC"))  # True
 print(r1.matches_mid_pair("CGATCGAT", "GCTAGCTA"))  # False
 print(r1.trim_mid_pair("AGCTTCGA", "TGCAGGTC"))     # 20 x "N"
+
+
+# TASK 3
+
+class Demultiplexer:
+    def __init__(self, fasta_path, mid_table_path):
+        self.reads = []
+        with gzip.open(fasta_path, "rt") as file:
+            for record in SeqIO.parse(file, "fasta"):
+                self.reads.append(SequencingRead(record.id, str(record.seq)))
+
+        self.samples = []
+        with open(mid_table_path, mode="r", encoding="utf-8") as handle:
+            reader = csv.DictReader(handle, delimiter=";")
+            for row in reader:
+                label = f"{row['SampleID']}_{row['Description']}"
+                f_mid = row["FBarcodeSequence"]
+                r_mid = row["RBarcodeSequence"]
+                self.samples.append((label, f_mid, r_mid))
+
+        self.assigned = {label: [] for label, _, _ in self.samples}
+        self.unassigned = []
+
+    def assign_reads(self):
+        for read in self.reads:
+            for label, f_mid, r_mid in self.samples:
+                trimmed_seq = read.trim_mid_pair(f_mid, r_mid)
+
+                if trimmed_seq is None:
+                    trimmed_seq = read.trim_mid_pair(r_mid, f_mid)
+
+                if trimmed_seq is not None:
+                    self.assigned[label].append(
+                        SequencingRead(read.read_id, trimmed_seq)
+                    )
+                    break
+
+            else:
+                self.unassigned.append(read)
+
+    def report(self) -> str:
+        text = ""
+        for label, reads in self.assigned.items():
+            text += f"{label}\t{len(reads)}\n"
+        text += f"unassigned\t{len(self.unassigned)}"
+        return text
+
+    def write_fasta(self, output_dir):
+        os.makedirs(output_dir, exist_ok=True)
+
+        for label, reads in self.assigned.items():
+            if len(reads) > 0:
+                file_path = f"{output_dir}/{label}.fasta"
+                with open(file_path, "w") as f:
+                    for read in reads:
+                        f.write(f">{read.read_id}\n{read.sequence}\n")
+
+
+
+demux = Demultiplexer("fishes.fna.gz", "fishes_MIDs.csv")
+demux.assign_reads()
+print(demux.report())
+demux.write_fasta("demux_output")
+
+
+
+
+
+
