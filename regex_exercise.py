@@ -15,7 +15,7 @@ log_lines = [
 # 1. Find all lines logged on 2024-01-16
 
 for line in log_lines:
-    if re.search(r"^2024-01-16", line): # or re.match
+    if re.search(r"^2024-01-16", line): # or re.match, ^ start of the string
         print(line)
 
 
@@ -51,7 +51,38 @@ for line in log_lines:
 pattern = r"^\d{4}-\d{2}-\d{2} \d{2}:\d{2}:\d{2} [A-Z]+ .+$"
 print(bool(re.fullmatch(pattern, log_lines[0])))
 
+
+
 # TASK 2
+def reverse_complement(sequence):
+    # create a translation table to swap complementary DNA bases
+    table = str.maketrans("ATCGatcg", "TAGCtagc")       # tabulka s komplementaritou nukleotidových bází
+    return sequence.translate(table)[::-1]              # vrací reverse complement → využití při reverse_mid
 
 class SequencingRead:
-    def __init__(self, line):
+    def __init__(self, read_id, sequence):
+        self.read_id = read_id
+        self.sequence = sequence
+
+    def matches_mid_pair(self, forward_mid, reverse_mid) -> bool:
+        rev_comp_r = reverse_complement(reverse_mid)        # vrací reverse complement z reverse mid (info v prezentaci)
+        pattern = f"^{forward_mid}.*{rev_comp_r}$"          # sekvence začíná ^ s forward MID, uvnitř mohou být veškeré báze a končí $ s reverse forward MID
+        return bool(re.search(pattern, self.sequence))
+
+    def trim_mid_pair(self, forward_mid, reverse_mid) -> str | None:
+        rev_comp_r = reverse_complement(reverse_mid)
+        pattern = f"^{forward_mid}(.*){rev_comp_r}$"
+        match = re.search(pattern, self.sequence)
+        if match:
+            return match.group(1)
+        return None
+
+    def describe(self) -> str:
+        return f"SequencingRead {self.read_id} ({len(self.sequence)} bp)"
+
+
+r1 = SequencingRead("demo_1", "AGCTTCGA" + "N" * 20 + reverse_complement("TGCAGGTC"))
+print(r1.describe())
+print(r1.matches_mid_pair("AGCTTCGA", "TGCAGGTC"))  # True
+print(r1.matches_mid_pair("CGATCGAT", "GCTAGCTA"))  # False
+print(r1.trim_mid_pair("AGCTTCGA", "TGCAGGTC"))     # 20 x "N"
